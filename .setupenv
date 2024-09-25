@@ -1,0 +1,2 @@
+export PATH=$HOME/Environments/ispc-v1.24.0-linux/bin:$PATH
+
