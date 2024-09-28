@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <stdio.h>
 #include <algorithm>
 #include <pthread.h>
@@ -34,7 +35,22 @@ int main() {
         // to you generate best and worse-case speedups
         
         // starter code populates array with random input values
-        values[i] = .001f + 2.998f * static_cast<float>(rand()) / RAND_MAX;
+        // 将 rand()/rand_max 视作一个 [0, 1] 的均匀分布
+        // 则下面的指令会得到一个 [0.001, 2.998] 的均匀分布
+        // values[i] = .001f + 2.998f * static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+
+        // worst -> 9.29x
+        // values[i] = 0.998f;
+        values[i] = 0.95f + 0.1f * static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+
+        /**
+        * 1. 破坏 SIMD，增加 branching
+        * 2. 破坏多线程，修改任务量，所需计算量越小，得到的加速比越低
+        */
+
+        // best -> 70.23x
+        // values[i] = 2.998f;
+        // values[i] = 2.9f + 0.098f * static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
     }
 
     // generate a gold version to check results

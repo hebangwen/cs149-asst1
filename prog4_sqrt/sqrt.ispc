@@ -56,7 +56,7 @@ export void sqrt_ispc_withtasks(uniform int N,
                                 uniform float output[])
 {
 
-    uniform int span = N / 64;  // 64 tasks
+    uniform int span = N / 16;
 
     launch[N/span] sqrt_ispc_task(N, span, initialGuess, values, output);
 }
