@@ -3,4 +3,5 @@ CompileFlags:
     - "-I/home/hbw/Code/cs149/asst1/common"
     - "-I/home/hbw/Code/cs149/asst1/prog3_mandelbrot_ispc/objs"
     - "-I/home/hbw/Code/cs149/asst1/prog4_sqrt/objs"
+    - "-I/home/hbw/Code/cs149/asst1/prog5_saxpy/objs"
 

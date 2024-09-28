@@ -11,3 +11,9 @@ mandelbrot-ispc.ppm
 mandelbrot-task-ispc.ppm
 
 sqrt
+saxpy
+
+start.log
+end.log
+kmeans
+data.dat
