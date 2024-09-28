@@ -4,3 +4,5 @@ objs/
 mandelbrot
 mandelbrot-serial.ppm
 mandelbrot-thread.ppm
+
+myexp

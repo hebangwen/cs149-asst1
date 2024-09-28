@@ -250,6 +250,50 @@ void clampedExpVector(float* values, int* exponents, float* output, int N) {
   // N and VECTOR_WIDTH, not just when VECTOR_WIDTH divides N
   //
   
+  int i = 0;
+  int mod = N % VECTOR_WIDTH;
+  int n = N - mod;
+  for (; i < n; i += VECTOR_WIDTH) {
+    __cs149_vec_float x;
+    __cs149_vec_float result;
+    __cs149_vec_int y;
+    __cs149_vec_int zeros = _cs149_vset_int(0);
+    __cs149_vec_int ones = _cs149_vset_int(1);
+    __cs149_vec_float thres = _cs149_vset_float(9.999999f);
+
+    auto reverse_mask = _cs149_init_ones();
+    auto mask = _cs149_init_ones();
+    auto all = _cs149_init_ones();
+
+    _cs149_vload_float(x, values+i, all);
+    _cs149_vmove_float(result, x, all);
+    _cs149_vload_int(y, exponents+i, all);
+    _cs149_vgt_int(mask, y, zeros, all);
+    
+    // 处理 exp 为 0 的情况
+    __cs149_vec_float fones = _cs149_vset_float(1.0f);
+    reverse_mask = _cs149_mask_not(mask);
+    _cs149_vmove_float(result, fones, reverse_mask);
+
+    // exp 减去 1，因为原来就有 1 个 float
+    _cs149_vsub_int(y, y, ones, mask);
+    _cs149_vgt_int(mask, y, zeros, mask);
+
+    while (_cs149_cntbits(mask)) {
+      _cs149_vmult_float(result, result, x, mask);
+      _cs149_vsub_int(y, y, ones, mask);
+      // _cs149_vlt_float(mask, result, thres, mask);
+      _cs149_vgt_int(mask, y, zeros, mask);
+    }
+
+    _cs149_vgt_float(mask, result, thres, all);
+    _cs149_vmove_float(result, thres, mask);
+    _cs149_vstore_float(output + i, result, all);
+  }
+
+  if (i < N) {
+    clampedExpSerial(values + n, exponents + n, output + n, mod);
+  }
 }
 
 // returns the sum of all elements in values
