@@ -317,11 +317,10 @@ float arraySumVector(float* values, int N) {
   
   auto all = _cs149_init_ones();
   __cs149_vec_float vsum;
+  __cs149_vec_float x;
   _cs149_vset_float(vsum, 0.0f, all);
 
   for (int i=0; i<N; i+=VECTOR_WIDTH) {
-    __cs149_vec_float x;
-
     _cs149_vload_float(x, values + i, all);
     _cs149_vadd_float(vsum, vsum, x, all);
   }
