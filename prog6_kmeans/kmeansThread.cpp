@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <thread>
+#include <vector>
 
 #include "CycleTimer.h"
 
@@ -56,7 +57,7 @@ static bool stoppingConditionMet(double *prevCost, double *currCost,
 double dist(double *x, double *y, int nDim) {
   double accum = 0.0;
   for (int i = 0; i < nDim; i++) {
-    accum += pow((x[i] - y[i]), 2);
+    accum += (x[i] - y[i]) * (x[i] - y[i]);
   }
   return sqrt(accum);
 }
@@ -65,27 +66,58 @@ double dist(double *x, double *y, int nDim) {
  * Assigns each data point to its "closest" cluster centroid.
  */
 void computeAssignments(WorkerArgs *const args) {
-  double *minDist = new double[args->M];
+  // auto start = CycleTimer::currentSeconds();
+  thread_local double *minDist = new double[args->end - args->start];
   
   // Initialize arrays
-  for (int m =0; m < args->M; m++) {
-    minDist[m] = 1e30;
+  for (int m = args->start; m < args->end; m++) {
+    minDist[m - args->start] = 1e30;
     args->clusterAssignments[m] = -1;
   }
 
   // Assign datapoints to closest centroids
-  for (int k = args->start; k < args->end; k++) {
-    for (int m = 0; m < args->M; m++) {
+  for (int k = 0; k < args->K; k++) {
+    for (int m = args->start; m < args->end; m++) {
       double d = dist(&args->data[m * args->N],
                       &args->clusterCentroids[k * args->N], args->N);
-      if (d < minDist[m]) {
-        minDist[m] = d;
+      if (d < minDist[m - args->start]) {
+        minDist[m - args->start] = d;
         args->clusterAssignments[m] = k;
       }
     }
   }
 
-  free(minDist);
+  // auto end = CycleTimer::currentSeconds();
+  // printf("%s: cost: %lf ms\n", __func__, (end - start) * 1000.0);
+
+  // free(minDist);
+}
+
+void computeAssignmentsParallel(WorkerArgs* const args, int n_workers) {
+  auto start = CycleTimer::currentSeconds();
+  WorkerArgs* all_args = static_cast<WorkerArgs*>(malloc(n_workers * sizeof(WorkerArgs)));
+
+  int span = args->M / n_workers;
+  for (int i = 0; i < n_workers; i++) {
+    all_args[i] = *args;
+    all_args[i].start = i * span;
+    all_args[i].end = std::min((i + 1) * span, args->M);
+  }
+
+  std::vector<std::thread> threads(n_workers - 1);
+  for (int i = 1; i < n_workers; i++) {
+    threads[i - 1] = std::thread(computeAssignments, &all_args[i]);
+  }
+
+  computeAssignments(&all_args[0]);
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  free(all_args);
+  auto end = CycleTimer::currentSeconds();
+  printf("%s: cost: %lf ms\n", __func__, (end - start) * 1000.0);
 }
 
 /**
@@ -93,7 +125,8 @@ void computeAssignments(WorkerArgs *const args) {
  * each cluster.
  */
 void computeCentroids(WorkerArgs *const args) {
-  int *counts = new int[args->K];
+  auto start = CycleTimer::currentSeconds();
+  thread_local int *counts = new int[args->K];
 
   // Zero things out
   for (int k = 0; k < args->K; k++) {
@@ -122,19 +155,21 @@ void computeCentroids(WorkerArgs *const args) {
     }
   }
 
-  free(counts);
+  // free(counts);
+
+  auto end = CycleTimer::currentSeconds();
+  printf("%s: cost: %lf ms\n", __func__, (end - start) * 1000.0);
 }
 
 /**
  * Computes the per-cluster cost. Used to check if the algorithm has converged.
  */
 void computeCost(WorkerArgs *const args) {
-  double *accum = new double[args->K];
+  auto start = CycleTimer::currentSeconds();
+  thread_local double *accum = new double[args->K];
 
   // Zero things out
-  for (int k = 0; k < args->K; k++) {
-    accum[k] = 0.0;
-  }
+  memset(accum, 0, args->K * sizeof(double));
 
   // Sum cost for all data points assigned to centroid
   for (int m = 0; m < args->M; m++) {
@@ -148,7 +183,61 @@ void computeCost(WorkerArgs *const args) {
     args->currCost[k] = accum[k];
   }
 
-  free(accum);
+  // free(accum);
+
+  auto end = CycleTimer::currentSeconds();
+  // printf("%s: cost: %lf ms\n", __func__, (end - start) * 1000.0);
+}
+
+void computeCostParallel(WorkerArgs * const args, int n_workers) {
+  auto start = CycleTimer::currentSeconds();
+  thread_local double *accum = new double[args->K * n_workers];
+
+  // Zero things out
+  memset(accum, 0, args->K * n_workers * sizeof(double));
+
+  // Sum cost for all data points assigned to centroid
+  auto worker_func = [] (WorkerArgs* worker_arg, double* accumulate) {
+    int N = worker_arg->N;
+    for (int m = worker_arg->start; m < worker_arg->end; m++) {
+      int k = worker_arg->clusterAssignments[m];
+      accumulate[k] += dist(&worker_arg->data[m * N],
+                      &worker_arg->clusterCentroids[k * N], N);
+    }
+  };
+
+  int span = args->M / n_workers;
+  std::vector<WorkerArgs> all_args(n_workers);
+  for (int i = 0; i < n_workers; i++) {
+    all_args[i] = *args ;
+    all_args[i].start = span * i;
+    all_args[i].end = std::min(span * (i + 1), args->M);
+  }
+
+  std::vector<std::thread> workers(n_workers - 1);
+  for (int i = 1; i < n_workers; i++) {
+    workers[i - 1] = std::thread(worker_func, &all_args[i], accum + i * args->K);
+  }
+
+  worker_func(&all_args[0], accum);
+
+  for (auto &t : workers) {
+    t.join();
+  }
+
+  // Update costs
+  for (int t = 1; t < n_workers; t++) {
+    for (int k = 0; k < args->K; k++) {
+      accum[k] += accum[k + t];
+    }
+  }
+
+  memcpy(args->currCost, accum, args->K * sizeof(double));
+
+  // free(accum);
+
+  auto end = CycleTimer::currentSeconds();
+  printf("%s: cost: %lf ms\n", __func__, (end - start) * 1000.0);
 }
 
 /**
@@ -197,6 +286,7 @@ void kMeansThread(double *data, double *clusterCentroids, int *clusterAssignment
 
   /* Main K-Means Algorithm Loop */
   int iter = 0;
+  int n_workers = 8;
   while (!stoppingConditionMet(prevCost, currCost, epsilon, K)) {
     // Update cost arrays (for checking convergence criteria)
     for (int k = 0; k < K; k++) {
@@ -207,11 +297,16 @@ void kMeansThread(double *data, double *clusterCentroids, int *clusterAssignment
     args.start = 0;
     args.end = K;
 
-    computeAssignments(&args);
+    // computeAssignments(&args);
+    computeAssignmentsParallel(&args, n_workers);
+
     computeCentroids(&args);
-    computeCost(&args);
+
+    // computeCost(&args);
+    computeCostParallel(&args, n_workers);
 
     iter++;
+    printf("----> iter = %d <----\n", iter);
   }
 
   free(currCost);
